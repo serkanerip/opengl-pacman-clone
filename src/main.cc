@@ -21,8 +21,6 @@ float lastFrame = 0.0f; // Time of last frame
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void process_input(GLFWwindow *window);
 
-float tileSize = 48.0f;
-
 int main()
 {
   // Initialize GLFW
@@ -71,14 +69,6 @@ int main()
 
   Game game;
 
-  // find pacman initial position
-  float startX = 200.0f;
-  float startY = 200.0f;
-  printf("Pacman starts at: %.1f, %.1f\n", game.pacman.position.x, game.pacman.position.y);
-
-  bool atCenterOfCurrentTile;
-  float epsilon = 0.1f; // tweak depending on speed/tileSize
-  float score = 0.0f;
   while (!glfwWindowShouldClose(window))
   {
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
