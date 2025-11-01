@@ -1,6 +1,7 @@
 #ifndef GAME_H
 #define GAME_H
 
+#include <string.h>
 #include "shader.h"
 #include <vector>
 #include <string>
@@ -14,6 +15,29 @@ enum GAME_STATE
   GAME_WIN
 };
 
+enum GHOST_MODE
+{
+  GHOST_CHASE,
+  GHOST_SCATTER,
+  GHOST_FRIGHTENED
+};
+
+struct Ghost
+{
+  glm::vec2 position;
+  glm::vec2 direction;
+  glm::vec2 velocity;
+  float speed;
+  unsigned int texture;
+  GHOST_MODE mode;
+  glm::vec2 targetTile;
+
+  Ghost(std::string texturePath) {
+    texture = loadTexture(texturePath.c_str());
+    mode = GHOST_SCATTER;
+  }
+};
+
 struct Pacman
 {
   glm::vec2 position = glm::vec2(0.0f, 0.0f);
@@ -22,6 +46,7 @@ struct Pacman
   float speed = 0.0f;
   float animationTime = 0.0f;
   unsigned int texture;
+  glm::ivec2 currentTile;
 
   // textures for animation
   std::vector<unsigned int> upTextures;
@@ -81,7 +106,6 @@ struct Game
   float startX = 200.0f;
   float startY = 200.0f;
   Pacman pacman;
-  bool atCenterOfCurrentTile = false;
   std::vector<std::string> map;
   GAME_STATE state = GAME_MENU;
   unsigned int VAO;
@@ -91,11 +115,19 @@ struct Game
   unsigned int wallTexture;
   unsigned int pelletTexture;
 
+  // ghosts
+  Ghost redGhost;
+
   Game();
   void Reset();
   void Draw(glm::mat4 projection);
   void PhysicsUpdate(float deltaTime, glm::vec2 &desiredDir);
+
+private:
+  void updatePacmanPhsyics(float deltaTime, glm::vec2 &desiredDir);
+  bool centerAligned(glm::vec2 tilePx, glm::vec2& position, glm::vec2 velocity);
   glm::ivec2 pxToCell(glm::vec2 p);
+  glm::vec2 cellToPx(glm::ivec2 cell);
 };
 
 glm::ivec2 Game::pxToCell(glm::vec2 p) {
@@ -104,7 +136,7 @@ glm::ivec2 Game::pxToCell(glm::vec2 p) {
     return { (int)std::round(fx), (int)std::round(fy) };
 }
 
-Game::Game()
+Game::Game() : redGhost("pacman-art/ghosts/blinky.png")
 {
   // Initialize default map
   Reset();
@@ -178,7 +210,7 @@ void Game::Reset()
       "     #.## ###--### ##.#     ",
       "######.## #      # ##.######",
       "      .   #      #   .      ",
-      "######.## #      # ##.######",
+      "######.## #  R   # ##.######",
       "     #.## ######## ##.#     ",
       "     #.##    P     ##.#     ",
       "     #.## ######## ##.#     ",
@@ -199,6 +231,11 @@ void Game::Reset()
       if (map[y][x] == 'P')
       {
         pacman.position = glm::vec2(startX + (x * tileSize), startY + (y * tileSize));
+        pacman.currentTile = glm::ivec2(x, y);
+      }
+      if (map[y][x] == 'R')
+      {
+        redGhost.position = glm::vec2(startX + (x * tileSize), startY + (y * tileSize));
       }
     }
   }
@@ -213,20 +250,21 @@ void Game::Draw(glm::mat4 projection)
   {
     for (unsigned int x = 0; x < map[y].length(); x++)
     {
-      if (map[y][x] == ' ' || map[y][x] == 'P')
-        continue;
-      float xPos = startX + (x * tileSize);
-      float yPos = startY + (y * tileSize);
-      glm::mat4 model = glm::mat4(1.0f);
-      model = glm::translate(model, glm::vec3(xPos, yPos, 0.0f));
-      model = glm::scale(model, glm::vec3(tileSize, tileSize, 1.0f));
-      glUniformMatrix4fv(glGetUniformLocation(shaderProgram.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
-      unsigned int textureID = (map[y][x] == '.') ? pelletTexture : wallTexture;
+      if (map[y][x] == '#' || map[y][x] == '.') 
+      {
+        float xPos = startX + (x * tileSize);
+        float yPos = startY + (y * tileSize);
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(xPos, yPos, 0.0f));
+        model = glm::scale(model, glm::vec3(tileSize, tileSize, 1.0f));
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
+        unsigned int textureID = (map[y][x] == '.') ? pelletTexture : wallTexture;
 
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, textureID);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, textureID);
 
-      glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+      }
     }
   }
 
@@ -239,40 +277,58 @@ void Game::Draw(glm::mat4 projection)
   glUniformMatrix4fv(glGetUniformLocation(shaderProgram.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
   glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
+  // draw red ghost
+  model = glm::mat4(1.0f);
+  model = glm::translate(model, glm::vec3(redGhost.position, 0.0f));
+  model = glm::scale(model, glm::vec3(tileSize, tileSize, 1.0f));
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, redGhost.texture);
+  glUniformMatrix4fv(glGetUniformLocation(shaderProgram.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
+  glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
   glBindVertexArray(0);
 }
 
-void Game::PhysicsUpdate(float deltaTime, glm::vec2 &desiredDir)
+bool moveableTile(char tile)
 {
-  auto currentTile = pxToCell(pacman.position);
-  float centerX = startX + currentTile.x * tileSize;
-  float centerY = startY + currentTile.y * tileSize;
-  float epsilon = pacman.velocity == glm::vec2(0.0f, 0.0f) ? 0.1f : glm::length(pacman.velocity) * 0.5f;
-  if (fabs(centerX - pacman.position.x) < epsilon &&
-      fabs(centerY - pacman.position.y) < epsilon)
-  {
-    pacman.position.x = centerX;
-    pacman.position.y = centerY;
-    atCenterOfCurrentTile = true;
-  }
-  else
-  {
-    atCenterOfCurrentTile = false;
-  }
-  // printf("Current Tile: %d, %d\n", currentTile.x, currentTile.y);
-  // printf("atCenterOfCurrentTile: %d\n", atCenterOfCurrentTile);
+  return tile != '#' && tile != '-';
+}
 
-  if (atCenterOfCurrentTile && map[currentTile.y][currentTile.x] == '.')
+glm::vec2 Game::cellToPx(glm::ivec2 cell) {
+    float px = startX + cell.x * tileSize;
+    float py = startY + cell.y * tileSize;
+    return glm::vec2(px, py);
+}
+
+bool Game::centerAligned(glm::vec2 tilePx, glm::vec2& position, glm::vec2 velocity) {
+  float epsilon = velocity == glm::vec2(0.0f, 0.0f) ? 0.1f : glm::length(velocity) * 0.5f;
+  if (fabs(tilePx.x - position.x) < epsilon &&
+      fabs(tilePx.y - position.y) < epsilon)
   {
-    map[currentTile.y][currentTile.x] = ' ';
+    position.x = tilePx.x;
+    position.y = tilePx.y;
+    return true;
+  }
+  return false;
+}
+
+void Game::updatePacmanPhsyics(float deltaTime, glm::vec2 &desiredDir)
+{
+  pacman.currentTile = pxToCell(pacman.position);
+  auto pacmanTilePx = cellToPx(pacman.currentTile);
+  bool isPacmanCenterAligned = centerAligned(pacmanTilePx, pacman.position, pacman.velocity);
+
+  if (isPacmanCenterAligned && map[pacman.currentTile.y][pacman.currentTile.x] == '.')
+  {
+    map[pacman.currentTile.y][pacman.currentTile.x] = ' ';
     score += 10.0f;
     printf("Pellet eaten! Score: %.1f\n", score);
   }
 
-  if ((desiredDir.x != 0 || desiredDir.y != 0) && (atCenterOfCurrentTile))
+  if ((desiredDir.x != 0 || desiredDir.y != 0) && (isPacmanCenterAligned))
   {
     auto nextTile = pxToCell(pacman.position) + (glm::ivec2)desiredDir;
-    if (map[nextTile.y][nextTile.x] != '#')
+    if (moveableTile(map[nextTile.y][nextTile.x]))
     {
       pacman.direction = desiredDir;
       desiredDir = glm::vec2(0, 0);
@@ -280,7 +336,7 @@ void Game::PhysicsUpdate(float deltaTime, glm::vec2 &desiredDir)
   }
   pacman.velocity = pacman.direction * deltaTime * pacman.speed;
   glm::ivec2 nextTile = pxToCell(pacman.position + pacman.velocity) + (glm::ivec2)pacman.direction;
-  if (!atCenterOfCurrentTile || map[nextTile.y][nextTile.x] != '#')
+  if (!isPacmanCenterAligned || moveableTile(map[nextTile.y][nextTile.x]))
   {
     pacman.position += pacman.velocity;
   }
@@ -288,6 +344,11 @@ void Game::PhysicsUpdate(float deltaTime, glm::vec2 &desiredDir)
   {
     pacman.direction = glm::vec2(0, 0);
   }
+}
+
+void Game::PhysicsUpdate(float deltaTime, glm::vec2 &desiredDir)
+{
+  updatePacmanPhsyics(deltaTime, desiredDir);
 }
 
 #endif
