@@ -1,13 +1,13 @@
 # Variables
 CXX = g++
 CXXFLAGS = -Iinclude
-LIBS = -lglfw -lGL -lm -ldl
+LIBS = -lglfw -lGL -lm -ldl -lpthread
 SRCDIR = src
 BUILDDIR = build
 INCLUDEDIR = include
 
 # Object files
-OBJS = $(BUILDDIR)/main.o $(BUILDDIR)/glad.o
+OBJS = $(BUILDDIR)/main.o $(BUILDDIR)/glad.o $(BUILDDIR)/miniaudio.o
 
 # Main target
 $(BUILDDIR)/main: $(OBJS)
@@ -22,10 +22,16 @@ $(BUILDDIR)/glad.o: $(SRCDIR)/glad.c $(INCLUDEDIR)/glad/glad.h $(INCLUDEDIR)/KHR
 	@mkdir -p $(BUILDDIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+$(BUILDDIR)/miniaudio.o: $(SRCDIR)/miniaudio.c $(INCLUDEDIR)/miniaudio.h
+	@mkdir -p $(BUILDDIR)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
 # Convenience targets
 build: $(BUILDDIR)/main
 
 clean:
 	rm -f $(BUILDDIR)/*.o $(BUILDDIR)/main
+
+.PHONY: build clean
 
 .PHONY: build clean
