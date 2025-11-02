@@ -30,12 +30,30 @@ struct Ghost
   glm::vec2 targetTile;
   glm::ivec2 scatterCorner;
 
+  glm::vec2 housePosition;
+
+  float frightenedUntil = 0.0f;
+
   Ghost(std::string texturePath, glm::ivec2 scatterCorner) {
     texture = loadTexture(texturePath.c_str());
     this->scatterCorner = scatterCorner;
   }
 
+  void frighten(float duration) {
+    mode = FRIGHTENED;
+    speed *= 0.5f;
+    frightenedUntil = duration;
+    printf("Ghost frightened until %.2f seconds\n", frightenedUntil);
+  }
+
   void updateGhostMode(float timer) {
+    if (mode == FRIGHTENED)
+      if (timer >= frightenedUntil) {
+        printf("Ghost remains frightened at time %.2f seconds\n", timer);
+        speed *= 2.0f;
+      } else {
+        return;
+      }
     if (timer < 7)          mode = SCATTER;
     else if (timer < 27)    mode = CHASE;
     else if (timer < 34)    mode = SCATTER;
@@ -122,9 +140,13 @@ struct Game
   // textures
   unsigned int wallTexture;
   unsigned int pelletTexture;
+  unsigned int appleTexture;
+  unsigned int frigthenedTexture;
 
   // ghosts
   Ghost redGhost;
+
+  float frightenedUntil = 0.0f;
 
   float globalModeTimer = 0.0f;
 
@@ -160,6 +182,8 @@ Game::Game() : redGhost("pacman-art/ghosts/blinky.png", {26, 1})
 
   wallTexture = loadTexture("wall.png");
   pelletTexture = loadTexture("pacman-art/other/dot.png");
+  appleTexture = loadTexture("pacman-art/other/apple.png");
+  frigthenedTexture = loadTexture("pacman-art/ghosts/blue_ghost.png");
 
   // quad vertices
   float vertices[] = {
@@ -203,9 +227,10 @@ void Game::Reset()
   pacman.position = glm::vec2(0.0f, 0.0f);
   pacman.direction = glm::vec2(0.0f, 0.0f);
   pacman.velocity = glm::vec2(0.0f, 0.0f);
-  pacman.speed = tileSize * 5; // pixels per second
-  redGhost.speed = tileSize * 4; // pixels per second
+  pacman.speed = tileSize * 6; // pixels per second
+  redGhost.speed = tileSize * 6; // pixels per second
   redGhost.direction = glm::ivec2(0, -1);
+  redGhost.mode = SCATTER;
   state = GAME_MENU;
   gameTime = 0.0f;
 
@@ -235,7 +260,7 @@ void Game::Reset()
       "###.##.##.########.##.##.###",
       "#......##....##....##......#",
       "#.##########.##.##########.#",
-      "#..........................#",
+      "#........................A.#",
       "############################"};
 
   for (unsigned int y = 0; y < map.size(); y++)
@@ -250,6 +275,7 @@ void Game::Reset()
       if (map[y][x] == 'R')
       {
         redGhost.position = glm::vec2(startX + (x * tileSize), startY + (y * tileSize));
+        redGhost.housePosition = redGhost.position;
       }
     }
   }
@@ -264,7 +290,7 @@ void Game::Draw(glm::mat4 projection)
   {
     for (unsigned int x = 0; x < map[y].length(); x++)
     {
-      if (map[y][x] == '#' || map[y][x] == '.') 
+      if (map[y][x] == '#' || map[y][x] == '.' || map[y][x] == 'A') 
       {
         float xPos = startX + (x * tileSize);
         float yPos = startY + (y * tileSize);
@@ -273,6 +299,8 @@ void Game::Draw(glm::mat4 projection)
         model = glm::scale(model, glm::vec3(tileSize, tileSize, 1.0f));
         glUniformMatrix4fv(glGetUniformLocation(shaderProgram.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
         unsigned int textureID = (map[y][x] == '.') ? pelletTexture : wallTexture;
+        if (map[y][x] == 'A')
+          textureID = appleTexture;
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textureID);
@@ -296,7 +324,7 @@ void Game::Draw(glm::mat4 projection)
   model = glm::translate(model, glm::vec3(redGhost.position, 0.0f));
   model = glm::scale(model, glm::vec3(tileSize, tileSize, 1.0f));
   glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, redGhost.texture);
+  glBindTexture(GL_TEXTURE_2D, redGhost.mode == FRIGHTENED ? frigthenedTexture : redGhost.texture);
   glUniformMatrix4fv(glGetUniformLocation(shaderProgram.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
   glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
@@ -341,6 +369,13 @@ void Game::updatePacmanPhysics(float deltaTime, glm::vec2 &desiredDir)
       score += 10.0f;
       printf("Pellet eaten! Score: %.1f\n", score);
     }
+    else if (*currentTileChar == 'A')
+    {
+      *currentTileChar = ' ';
+      score += 50.0f;
+      printf("Apple eaten! Score: %.1f\n", score);
+      redGhost.frighten(gameTime + 7.0f);
+    }
 
     if ((desiredDir.x != 0 || desiredDir.y != 0))
     {
@@ -376,8 +411,31 @@ void Game::updateRedGhostPhysics(float deltaTime)
 
   if (isGhostCenterAligned)
   {
+    static const glm::ivec2 dirs[] = {
+        {1,0}, {-1,0}, {0,1}, {0,-1}
+    };
     // printf("Red ghost at tile (%d, %d)\n", ghostCurrenTile.x, ghostCurrenTile.y);
     redGhost.position = ghostTilePx; // Snap to center
+    if (redGhost.mode == FRIGHTENED) {
+      std::vector<glm::ivec2> possibleDirs;
+      for (auto d : dirs)
+      {
+          glm::ivec2 next = ghostCurrenTile + d;
+          if (canGhostMove(map[next.y][next.x]) && glm::vec2(d) != -redGhost.direction) {
+              possibleDirs.push_back(d);
+          }
+      }
+      if (!possibleDirs.empty()) {
+          int r = rand() % possibleDirs.size();
+          redGhost.direction = glm::vec2(possibleDirs[r]);
+      } else {
+          redGhost.direction = -redGhost.direction; // reverse
+      }
+      redGhost.velocity = redGhost.direction * deltaTime * redGhost.speed;
+      redGhost.position += redGhost.velocity;
+      printf("Red ghost frightened chooses direction (%.1f, %.1f)\n", redGhost.direction.x, redGhost.direction.y);
+      return;
+    }
 
     auto cmpVec2 = [](const glm::ivec2 &a, const glm::ivec2 &b) {
         return (a.y < b.y) || (a.y == b.y && a.x < b.x);
@@ -386,10 +444,6 @@ void Game::updateRedGhostPhysics(float deltaTime)
     std::map<glm::ivec2, glm::ivec2, decltype(cmpVec2)> cameFrom(cmpVec2);
     q.push(ghostCurrenTile);
     cameFrom[ghostCurrenTile] = ghostCurrenTile;
-
-    static const glm::ivec2 dirs[] = {
-        {1,0}, {-1,0}, {0,1}, {0,-1}
-    };
 
     while (!q.empty())
     {
@@ -431,7 +485,15 @@ void Game::PhysicsUpdate(float deltaTime, glm::vec2 &desiredDir)
 {
   gameTime += deltaTime;
   globalModeTimer += deltaTime;
-  redGhost.updateGhostMode(globalModeTimer);
+  redGhost.updateGhostMode(gameTime);
+  auto pacmanTile = pxToCell(pacman.position);
+  auto ghostTile = pxToCell(redGhost.position);
+  if (pacmanTile == ghostTile) {
+    printf("Red ghost caught Pacman! Game Over!\n");
+    Reset();
+    return;
+  }
+
   updatePacmanPhysics(deltaTime, desiredDir);
   updateRedGhostPhysics(deltaTime);
 }
